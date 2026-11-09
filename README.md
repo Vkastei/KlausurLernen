@@ -1,5 +1,7 @@
-# Probeklausur
-KOMPLETT GEVIBECODED!
+# KlausurLernen
+
+## KOMPLETT GEVIBECODED!
+
 Lokales Tool: Lernmaterial reinziehen → Themen wählen → Claude (CLI) erstellt eine realistische Probeklausur (Schwerpunkt AB II/III) → im Tool bearbeiten → korrigieren lassen → Verständnis-Score bis 100 %.
 
 ## Start
