@@ -442,8 +442,10 @@ async function viewTopic(cid, tid) {
   }
   function renderNote() {
     const n = T.note;
+    const openN = (T.slides || []).flatMap(g => g.pages).filter(p => p.s === "miss" || p.s === "fig").length;
+    const openHint = openN ? `<div class="hint small">${openN} ${openN === 1 ? "Seite enthält" : "Seiten enthalten"} Abbildungen, die die KI noch nicht kennt (im Material rot markiert). Dort vormerken → „Transkribieren + Lernzettel ${n ? "neu " : ""}erstellen“.</div>` : "";
     if (!n) {
-      $("#note").innerHTML = `<h2>Lernzettel</h2>
+      $("#note").innerHTML = `<h2>Lernzettel</h2>${openHint}
         <p class="small">Erklärt das Thema von Grund auf – aus <b>deinem</b> Material (Markierungen werden betont): Überblick, Kernbegriffe, Schritt-für-Schritt, ein durchgerechnetes Beispiel, typische Fehler, was in Klausuren gefragt wird und ein Selbsttest.</p>
         <p class="small muted">Wird einmal erstellt und gespeichert. ≈ ${tok(T.note_est_in)} Eingabe + ≈ ${tok(T.note_est_out)} Ausgabe-Tokens (${esc(T.models.learn)}).</p>
         <div class="row"><button class="primary" id="ngo" ${T.has_material ? "" : "disabled"}>Lernzettel erstellen</button><span id="nst" class="small muted">${T.has_material ? "" : "Kein verwertbares Material – Seiten ggf. erst transkribieren."}</span></div>`;
@@ -451,7 +453,7 @@ async function viewTopic(cid, tid) {
       $("#note").innerHTML = `<div class="row between"><h2 style="margin:0">Lernzettel</h2><div class="row">
           ${T.stale ? `<span class="badge warn" title="Material oder Markierungen haben sich seit der Erstellung geändert">Material geändert</span>` : ""}
           <button class="small" id="ngo" title="≈ ${tok(T.note_est_in)} Tokens">Neu erstellen</button></div></div>
-        <div class="md note">${spoilers(md(n.md))}</div>
+        ${openHint}<div class="md note">${spoilers(md(n.md))}</div>
         <div class="tiny muted" style="margin-top:10px">${new Date(n.created * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · ${esc(n.model)} · ${tok(n.usage.in + n.usage.cache_w + n.usage.cache_r)} ein / ${tok(n.usage.out)} aus · Selbsttest-Antworten: anklicken zum Aufdecken</div>
         <span id="nst" class="small muted"></span>`;
     }
@@ -533,53 +535,176 @@ async function viewTopic(cid, tid) {
     if (vb) vb.onclick = () => runVariants(cid, P.drill, P.fails, vb);
     $("#qalt").onclick = () => startGen(cid, { kind: "quiz", topics: [tid], minutes: +($("#qmin")?.value || 10), level: +$("#qlv").value }, $("#qst"), $("#qalt"));
   }
+  // material overview: highlighter overlay = what the AI gets from each page; pick figures to transcribe
+  // pick: "mid:i" -> Set of figure indices (empty = whole page)
+  const pick = new Map(), LAY = {};
+  let showAll = false;
+  async function loadLay(flat) {
+    const need = {};
+    flat.filter(p => p.img && !(p.key in LAY)).forEach(p => (need[p.g.mid] ||= []).push(p.i));
+    const mids = Object.keys(need);
+    if (!mids.length) return false;
+    await Promise.all(mids.map(mid => api("GET", `/api/courses/${cid}/materials/${mid}/layout?i=${need[mid].join(",")}`)
+      .then(d => need[mid].forEach(i => { LAY[`${mid}:${i}`] = d.pages[i] || null; }))
+      .catch(() => need[mid].forEach(i => { LAY[`${mid}:${i}`] = null; }))));
+    return true;
+  }
+  const openFigs = key => (LAY[key]?.f || []).map((f, k) => f[4] !== "ok" ? k : -1).filter(k => k >= 0);
+  const pickPage = p => {
+    if (pick.has(p.key)) pick.delete(p.key); else pick.set(p.key, new Set(openFigs(p.key)));
+  };
+  const pickFig = (p, k) => {
+    const s = pick.get(p.key) || new Set();
+    s.has(k) ? s.delete(k) : s.add(k);
+    s.size ? pick.set(p.key, s) : pick.delete(p.key);
+  };
   function renderSrc() {
-    const G = T.slides || [], flat = G.flatMap(g => g.pages.map(p => ({ ...p, g })));
+    const G = T.slides || [], flat = G.flatMap(g => g.pages.map(p => ({ ...p, g, key: `${g.mid}:${p.i}` })));
     const UNIT = { pdf: "Seite", pptx: "Folie", image: "Bild" };
     const LIMIT = 24;
-    $("#src").innerHTML = `<h2>Material</h2>` + (flat.length ? G.map(g => `<div class="sgroup">
+    for (const x of [...pick.keys()]) if (!flat.some(p => p.key === x && canPick(p))) pick.delete(x);
+    const open = flat.filter(p => p.s === "miss" || p.s === "fig");
+    const nReg = [...pick.values()].reduce((a, s) => a + Math.max(1, s.size), 0);
+    const est = [...pick.keys()].reduce((a, x) => a + (flat.find(p => p.key === x)?.s === "miss" ? 1300 : 450 + 500 * Math.max(1, pick.get(x).size)), 0);
+    $("#src").innerHTML = `<h2>Material</h2>` + (flat.length ? `<div class="slegend tiny">${HL_LEGEND}</div>` + G.map(g => `<div class="sgroup">
         <div class="row between small"><b class="grow" style="overflow-wrap:anywhere">${esc(g.name)}</b><span class="muted">${g.pages.length} ${g.pages.length === 1 ? (UNIT[g.kind] || "Abschnitt") : ({ pdf: "Seiten", pptx: "Folien", image: "Bilder" }[g.kind] || "Abschnitte")}</span></div>
         <div class="sgrid">${g.pages.map(p => {
-          const k = flat.findIndex(f => f.g === g && f.i === p.i);
-          return `<button class="stile ${p.img ? "" : "txt"} ${p.used ? "" : "unused"}" data-k="${k}" ${k >= LIMIT ? "hidden" : ""} title="${esc(`${UNIT[g.kind] || "Abschnitt"} ${p.n}${p.t ? " – " + p.t : ""}`)}">
-            ${p.img ? `<img loading="lazy" src="/api/courses/${cid}/materials/${g.mid}/img/${p.i}?w=320" alt="" draggable="false">` : `<span class="stxt"><b>${esc(p.t)}</b> ${esc(p.x)}</span>`}
-            <span class="snum">${p.n}</span>${p.st === "imp" ? `<span class="simp" title="sehr wichtig">★</span>` : ""}</button>`;
+          const k = flat.findIndex(f => f.g === g && f.i === p.i), f = flat[k], on = pick.has(f.key), c = CAPTURE[p.s] || CAPTURE.ok;
+          return `<div class="stile ${p.img ? "" : "txt"} ${p.used || p.near ? "" : "unused"} ${p.near ? "near" : ""} ${on ? "picked" : ""}" data-k="${k}" ${k >= LIMIT && !showAll ? "hidden" : ""} role="button" tabindex="0"
+              title="${esc(`${UNIT[g.kind] || "Abschnitt"} ${p.n}${p.t ? " – " + p.t : ""}\n${c.tip}${p.near ? "\nNoch keinem Thema zugeordnet (liegt direkt daneben) – wird nach dem Transkribieren diesem Thema zugeordnet." : ""}`)}">
+            ${p.img ? pageHTML(`/api/courses/${cid}/materials/${g.mid}/img/${p.i}?w=320`, LAY[f.key], pick.get(f.key), true) : `<span class="stxt"><b class="hlx">${esc(p.t)}</b> <span class="hlx">${esc(p.x)}</span></span>`}
+            <span class="snum">${p.n}</span>${p.st === "imp" ? `<span class="simp" title="sehr wichtig">★</span>` : ""}
+            ${canPick(f) ? `<button class="spick" data-pick="${f.key}" title="Alle offenen Abbildungen dieser Seite vormerken">${on ? "✓" : ""}</button>` : ""}</div>`;
         }).join("")}</div></div>`).join("")
-      + (flat.length > LIMIT ? `<button class="small" id="sall" style="margin-top:8px">Alle ${flat.length} anzeigen</button>` : "")
-      + `<p class="tiny muted">Anklicken = groß anzeigen (← → blättern). ${flat.some(p => !p.used) ? "Blasse Seiten passen nicht mehr ins Lernzettel-Budget. " : ""}Ausschließen und Markieren über „Vorschau & markieren“ im Kurs.</p>`
+      + (flat.length > LIMIT && !showAll ? `<button class="small" id="sall" style="margin-top:8px">Alle ${flat.length} anzeigen</button>` : "")
+      + `<div class="spickbar row">${pick.size
+          ? `<span class="small grow"><b>${nReg}</b> ${nReg === 1 ? "Abbildung" : "Abbildungen"} auf ${pick.size} ${pick.size === 1 ? "Seite" : "Seiten"} vorgemerkt · ≈ ${tok(est)} Tokens (${esc(T.models.aux || "Sonnet")})</span>
+             <button class="small ghost" id="spclr">Leeren</button><button class="small" id="sptr">Transkribieren</button>
+             <button class="small primary" id="sptn" title="Danach den Lernzettel mit dem neuen Inhalt erstellen (≈ ${tok(T.note_est_in)} + Bildtext)">Transkribieren + Lernzettel ${T.note ? "neu " : ""}erstellen</button>`
+          : open.length ? `<span class="small grow">${open.length} ${open.length === 1 ? "Seite hat" : "Seiten haben"} Abbildungen, die die KI noch nicht kennt (rot).</span><button class="small" id="spall">Alle offenen vormerken</button>` : ""}</div>
+         <span id="spst" class="small muted"></span>`
+      + `<p class="tiny muted">Seite anklicken = groß anzeigen; dort rote Abbildungen anklicken = vormerken (← → blättern, <kbd>M</kbd> = alle Abbildungen der Seite). ${flat.some(p => !p.used && !p.near) ? "Blasse Seiten passen nicht mehr ins Lernzettel-Budget. " : ""}${flat.some(p => p.near) ? "Gestrichelt = reine Bildseite direkt neben dem Thema, noch ohne Thema. " : ""}Ausschließen und Markieren über „Vorschau & markieren“ im Kurs.</p>`
       : `<p class="small muted">Diesem Thema ist kein Material zugeordnet.</p>`);
     const all = $("#sall");
-    if (all) all.onclick = () => { $$(".stile[hidden]", $("#src")).forEach(t => t.hidden = false); all.remove(); };
-    $("#src").onclick = e => { const t = e.target.closest(".stile"); if (t) slideViewer(cid, flat, +t.dataset.k); };
+    if (all) all.onclick = () => { showAll = true; renderSrc(); };
+    const byKey = key => flat.find(p => p.key === key);
+    const opt = { pick, canPick, LAY, pickPage: p => { pickPage(p); renderSrc(); }, pickFig: (p, k) => { pickFig(p, k); renderSrc(); } };
+    $("#src").onclick = e => {
+      const b = e.target.closest("[data-pick]");
+      if (b) { pickPage(byKey(b.dataset.pick)); return renderSrc(); }
+      const t = e.target.closest(".stile");
+      if (t) slideViewer(cid, flat, +t.dataset.k, opt);
+    };
+    $("#src").onkeydown = e => { const t = e.target.closest(".stile"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); t.click(); } };
+    const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+    on("#spall", () => { open.forEach(p => pick.has(p.key) || pickPage(p)); renderSrc(); });
+    on("#spclr", () => { pick.clear(); renderSrc(); });
+    on("#sptr", () => runPick(false));
+    on("#sptn", () => runPick(true));
+    loadLay(flat).then(ch => { if (ch) renderSrc(); });
+  }
+  async function runPick(withNote) {
+    const n = pick.size;
+    if (!confirm(`${n} ${n === 1 ? "Seite" : "Seiten"} mit Claude transkribieren (nur die vorgemerkten Abbildungen)${withNote ? " und danach den Lernzettel " + (T.note ? "neu " : "") + "erstellen" : ""}?` +
+      (withNote && T.note ? "\nDer bisherige Lernzettel wird ersetzt (Nachfragen bleiben erhalten)." : "") + "\n\nStarten?")) return;
+    $$("#src button").forEach(b => b.disabled = true);
+    const regions = {};
+    pick.forEach((s, key) => { if (s.size) regions[key] = [...s]; });
+    try {
+      const j = await api("POST", `/api/courses/${cid}/topics/${tid}/transcribe`, { pages: [...pick.keys()], regions, note: withNote });
+      await poll(j.id, s => {
+        const [ph, a, b] = s.progress || [];
+        $("#spst").innerHTML = `<span class="spinner"></span> ${ph === "note" ? `Lernzettel wird geschrieben${a ? ` · ${fmt(a)} Zeichen` : ""}` : `transkribiert${b ? ` ${a}/${b}` : ""}`} · ${s.elapsed} s`;
+      });
+      pick.clear();
+      toast(withNote ? "Transkribiert, Lernzettel erstellt." : "Transkribiert – die KI kennt jetzt die Abbildungen.");
+    } catch (e) { toast(e.message, true); }
+    for (const k in LAY) delete LAY[k];
+    T = await api("GET", `/api/courses/${cid}/topics/${tid}`); renderAll();
   }
   function renderAll() { renderHead(); renderNote(); renderQA(); renderQuiz(); renderSrc(); }
   renderAll();
 }
+// what the AI gets from a page (status "s" from the topic info)
+const CAPTURE = {
+  ok: { ic: "✓", short: "Text", tip: "Text erfasst – die KI nutzt den Inhalt dieser Seite." },
+  tr: { ic: "✓", short: "transkribiert", tip: "Transkribiert – Text und Abbildungen sind für die KI erfasst." },
+  fig: { ic: "◐", short: "Abbildung offen", tip: "Text erfasst, Abbildungen (rot) aber nicht – die KI kennt nur den Text." },
+  miss: { ic: "✕", short: "Bild fehlt", tip: "Nur ein Bild ohne Text – die KI kennt den Inhalt nicht. Transkribieren!" },
+  skip: { ic: "–", short: "übersprungen", tip: "Abbildung als „keine Transkription nötig“ markiert – die KI kennt nur den Text." },
+};
+const canPick = p => p.img && p.s !== "tr";
+const HL_LEGEND = `<span class="slg"><i class="sw hlt"></i> Text erfasst</span><span class="slg"><i class="sw hlu"></i> Text nicht genutzt</span>
+  <span class="slg"><i class="sw hlf ok"></i> Abbildung transkribiert</span><span class="slg"><i class="sw hlf open"></i> Abbildung fehlt der KI</span>
+  <span class="slg"><i class="sw hlf sel"></i> vorgemerkt</span>`;
+const FIG_TIP = { ok: "Abbildung transkribiert – die KI kennt sie", open: "Abbildung fehlt der KI – anklicken zum Vormerken",
+  skip: "Abbildung übersprungen („keine Transkription nötig“) – anklicken zum Vormerken", sel: "Vorgemerkt – anklicken zum Abwählen" };
+// page picture + highlighter: L = {ar, t: [[x0,y0,x1,y1,ok]], f: [[x0,y0,x1,y1,state]]} (0..1), sel = picked figure indices
+function pageHTML(src, L, sel, thumb) {
+  const box = r => `left:${(r[0] * 100).toFixed(2)}%;top:${(r[1] * 100).toFixed(2)}%;width:${((r[2] - r[0]) * 100).toFixed(2)}%;height:${((r[3] - r[1]) * 100).toFixed(2)}%`;
+  const fit = thumb ? `onload="const r=this.naturalWidth/this.naturalHeight;this.parentNode.style.aspectRatio=r;this.parentNode.classList.toggle('h',r<4/3)"` : "";
+  const hl = L ? `<div class="hl">${L.t.map(r => `<i class="${r[4] ? "hlt" : "hlu"}" style="${box(r)}"></i>`).join("")}
+    ${L.f.map((r, k) => { const s = sel && sel.has(k) ? "sel" : r[4]; return `<i class="hlf ${s}" data-f="${k}" style="${box(r)}" title="${FIG_TIP[s]}"></i>`; }).join("")}</div>` : "";
+  return `<div class="spg ${L && L.ar && L.ar < 4 / 3 ? "h" : ""}" ${L && L.ar ? `style="aspect-ratio:${L.ar}"` : ""}><img ${thumb ? `loading="lazy"` : ""} src="${src}" alt="" draggable="false" ${fit}>${hl}</div>`;
+}
 // big view of a topic's slides/pages: ← → or buttons to browse, Esc closes; text-only sections show their text
-async function slideViewer(cid, list, k) {
+// opt {pick, canPick, LAY, pickPage, pickFig}: click red figures to pick them, M = whole page
+async function slideViewer(cid, list, k, opt = {}) {
   const UNIT = { pdf: "Seite", pptx: "Folie", image: "Bild" }, texts = {};
+  let asText = false;
   const bg = modal(`<div class="row between"><div id="svcap" class="grow small"></div>
+      <button class="small" id="svai" title="Zeigt den Text, den die KI von dieser Seite bekommt">Was die KI sieht</button>
+      <button class="small" id="svpick" hidden></button>
       <a id="svorig" class="small" target="_blank">Original ↗</a><button class="ghost" data-close>✕</button></div>
-    <div class="sview"><button class="ghost svnav" data-d="-1" title="Zurück (←)">‹</button><div id="svbody" class="svbody"></div><button class="ghost svnav" data-d="1" title="Weiter (→)">›</button></div>`,
+    <div class="sview"><button class="ghost svnav" data-d="-1" title="Zurück (←)">‹</button><div id="svbody" class="svbody"></div><button class="ghost svnav" data-d="1" title="Weiter (→)">›</button></div>
+    <div class="slegend tiny" style="justify-content:center;margin-top:6px">${HL_LEGEND}</div>`,
     () => document.removeEventListener("keydown", onKey), "wide");
+  const chunk = async g => {
+    if (!texts[g.mid]) texts[g.mid] = api("GET", `/api/courses/${cid}/materials/${g.mid}`).then(d => d.chunks);
+    return texts[g.mid];
+  };
   const show = async () => {
-    const p = list[k], g = p.g;
+    const p = list[k], g = p.g, c = CAPTURE[p.s] || CAPTURE.ok, L = opt.LAY?.[p.key];
+    const sel = opt.pick?.get(p.key), nOpen = (L?.f || []).filter(f => f[4] !== "ok").length;
     $("#svcap", bg).innerHTML = `<b>${UNIT[g.kind] || "Abschnitt"} ${p.n}</b>${p.t && !/^(Seite|Folie|Bild|Abschnitt) \d+$/.test(p.t) ? " – " + esc(p.t) : ""}
-      <span class="muted"> · ${esc(g.name)} · ${k + 1}/${list.length}</span>${p.st === "imp" ? ` <span class="badge warn">sehr wichtig</span>` : ""}`;
+      <span class="muted"> · ${esc(g.name)} · ${k + 1}/${list.length}</span>${p.st === "imp" ? ` <span class="badge warn">sehr wichtig</span>` : ""}
+      <div class="tiny" style="margin-top:2px">${esc(c.tip)}${p.near ? " Noch keinem Thema zugeordnet." : ""}${nOpen && opt.pick ? ` <b>Rote Abbildungen anklicken = vormerken.</b>` : ""}</div>`;
     const src = `/api/courses/${cid}/materials/${g.mid}/img/${p.i}`;
     const o = $("#svorig", bg); o.hidden = !p.img; o.href = src;
+    $("#svai", bg).hidden = !p.img;
+    $("#svai", bg).classList.toggle("on", asText);
+    const pb = $("#svpick", bg), can = opt.pick && opt.canPick(p);
+    pb.hidden = !can;
+    if (can) {
+      pb.textContent = sel ? `✓ ${sel.size > 1 ? sel.size + " Abbildungen" : sel.size ? "1 Abbildung" : "Seite"} vorgemerkt` : nOpen > 1 ? "Alle Abbildungen vormerken" : "Zum Transkribieren vormerken";
+      pb.className = "small" + (sel ? " primary" : ""); pb.title = sel ? "Abwählen (Taste M)" : "Taste M";
+    }
     $$(".svnav", bg).forEach(b => b.disabled = k + +b.dataset.d < 0 || k + +b.dataset.d >= list.length);
     const body = $("#svbody", bg);
-    if (p.img) { body.innerHTML = `<img src="${src}" alt="">`; return; }
+    if (p.img && !asText) { body.innerHTML = pageHTML(src, L, sel, false); return; }
     body.innerHTML = `<span class="spinner"></span>`;
-    if (!texts[g.mid]) texts[g.mid] = api("GET", `/api/courses/${cid}/materials/${g.mid}`).then(d => d.chunks);
-    const c = (await texts[g.mid])[p.i] || {};
-    if (list[k] === p) body.innerHTML = `<div class="svtext md">${c.code ? `<pre><code>${esc(c.tr || c.x || "")}</code></pre>` : md(c.tr || c.x || "")}</div>`;
+    const ch = (await chunk(g))[p.i] || {}, txt = (ch.x || "").trim();
+    if (list[k] !== p) return;
+    const note = p.s === "miss" ? `<p class="small bad-t">Kein Text – der Inhalt dieser Seite fehlt der KI, bis sie transkribiert ist.</p>`
+      : p.s === "fig" || p.s === "skip" ? `<p class="small muted">Nur dieser Text ist erfasst – rot markierte Abbildungen werden nicht beschrieben.</p>`
+      : p.s === "tr" ? `<p class="small muted">Transkribiert${/\[Abbildung\]/.test(txt) ? " – die Abbildungsbeschreibung steht nach „[Abbildung]“" : ""}.</p>` : "";
+    body.innerHTML = `<div class="svtext">${p.img ? note : ""}${txt ? `<div class="md">${ch.code ? `<pre><code>${esc(txt)}</code></pre>` : md(txt)}</div>` : ""}</div>`;
   };
   const go = d => { if (k + d >= 0 && k + d < list.length) { k += d; show(); } };
-  const onKey = e => { if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
+  const flip = () => { const p = list[k]; if (opt.pick && opt.canPick(p)) { opt.pickPage(p); show(); } };
+  const onKey = e => {
+    if (e.target.closest?.("input,textarea,select")) return;
+    if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1);
+    else if (e.key === "m" || e.key === "M") flip();
+  };
   document.addEventListener("keydown", onKey);
-  bg.addEventListener("click", e => { const b = e.target.closest(".svnav"); if (b) go(+b.dataset.d); });
+  bg.addEventListener("click", e => {
+    const b = e.target.closest(".svnav"); if (b) return go(+b.dataset.d);
+    if (e.target.closest("#svpick")) return flip();
+    if (e.target.closest("#svai")) { asText = !asText; return show(); }
+    const f = e.target.closest(".hlf");
+    if (f && opt.pick && opt.canPick(list[k]) && !f.classList.contains("ok")) { opt.pickFig(list[k], +f.dataset.f); show(); }
+  });
   show();
 }
 function compactPages(ps) {

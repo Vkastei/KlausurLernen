@@ -60,6 +60,16 @@ def _topic_material(course, tid, budget=NOTE_BUDGET):
     return mat, fp, sel, by_id
 
 
+def _capture(c):
+    """What the AI gets from a page: tr = text + picture transcribed · miss = only a picture, content missing ·
+    fig = text yes, figure not described · skip = figure marked "no transcription needed" · ok = plain text."""
+    if c.get("tr"):
+        return "tr"
+    if c.get("notr") and (c.get("v") or c.get("vi")):
+        return "skip"
+    return "miss" if c.get("v") else "fig" if c.get("vi") else "ok"
+
+
 def topic_info(course, tid, settings):
     t = _topic(course, tid)
     mat, fp, sel, by_id = _topic_material(course, tid)
@@ -80,14 +90,23 @@ def topic_info(course, tid, settings):
         mm, c = by_id[cid]
         sources.setdefault(mm["name"], []).append((c.get("pg", int(cid.split(":")[1])) + 1))
     # every assigned, not excluded page/slide for the visual overview (material order)
+    # + picture-only pages right next to the topic that no topic has (no text -> could not be assigned yet)
     mine, slides = set(t["chunks"]), {}
+    assigned = {x for tt in course["topics"] for x in tt["chunks"]}
+    near = set()
     for cid, (mm, c) in by_id.items():
-        if cid not in mine:
+        if cid in assigned or not c.get("v") or c.get("tr") or c.get("notr"):
+            continue
+        m_, i = cid.rsplit(":", 1)
+        if any(f"{m_}:{int(i) + d}" in mine for d in (-3, -2, -1, 1, 2, 3)):
+            near.add(cid)
+    for cid, (mm, c) in by_id.items():
+        if cid not in mine and cid not in near:
             continue
         i = int(cid.split(":")[1])
         g = slides.setdefault(mm["id"], {"mid": mm["id"], "name": mm["name"], "kind": mm["kind"], "pages": []})
         g["pages"].append({"i": i, "n": c.get("pg", i) + 1, "t": c.get("t") or "", "st": c.get("st") or "",
-                           "img": mm["kind"] == "pdf" or bool(c.get("img")), "used": cid in sel,
+                           "img": mm["kind"] == "pdf" or bool(c.get("img")), "used": cid in sel, "s": _capture(c), "near": cid in near,
                            "x": re.sub(r"```\w*|^#+\s*", "",c.get("tr") or c.get("x") or "", flags=re.M)[:400] if mm["kind"] != "pdf" and not c.get("img") else ""})
     exams = []
     for e in all_ex:
@@ -103,7 +122,8 @@ def topic_info(course, tid, settings):
             "path": path, "levels": {k: v[0] for k, v in exam.QUIZ_LEVELS.items()}, "pass": round(100 * exam.PASS),
             "sources": [{"name": k, "pages": v} for k, v in sources.items()],
             "slides": list(slides.values()),
-            "exams": exams[::-1], "models": {"learn": settings["learn_model"], "quiz": settings["quiz_model"]}}
+            "exams": exams[::-1], "models": {"learn": settings["learn_model"], "quiz": settings["quiz_model"],
+                       "aux": settings["aux_model"]}}
 
 
 def generate_note(course, tid, settings, progress=None):

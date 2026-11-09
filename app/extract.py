@@ -270,13 +270,108 @@ def refresh_pdf_figures(path, data):
 VISION_PX = 1100  # max edge for images sent to Claude; slides stay readable, ~40 % fewer tokens than 1400
 
 
-def render_pdf_page(path, pg, max_px=VISION_PX):
+def render_pdf_page(path, pg, max_px=VISION_PX, clip=None):
+    """clip: [x0, y0, x1, y1] normalized to 0..1 -> only that region (a figure), with a small margin."""
     import pymupdf
     with pymupdf.open(path) as doc:
         page = doc[pg]
-        s = max_px / max(page.rect.width, page.rect.height)
-        pix = page.get_pixmap(matrix=pymupdf.Matrix(s, s))
+        r = page.rect
+        if clip:
+            W, H, m = r.width, r.height, 0.01
+            r = pymupdf.Rect((clip[0] - m) * W, (clip[1] - m) * H, (clip[2] + m) * W, (clip[3] + m) * H) & page.rect
+        s = min(4.0, max_px / max(r.width, r.height, 1))
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(s, s), clip=r if clip else None)
         return pix.tobytes("jpeg", jpg_quality=75), "image/jpeg"
+
+
+LAYOUT_VERSION = 1
+
+
+def pdf_layout(path):
+    """Per page (normalized 0..1): {"ar": width/height, "text": [[x0, y0, x1, y1, line], ...],
+    "figs": [[x0, y0, x1, y1], ...]} -- figs = real figures (images, vector diagrams); logos and
+    template shapes repeated on many pages are left out (same rule as figure_flags)."""
+    import pymupdf
+    with pymupdf.open(path) as doc:
+        n = len(doc)
+        img_pages, sig_pages, per = Counter(), Counter(), []
+        for page in doc:
+            xr = {im[0] for im in page.get_images(full=True)}
+            try:
+                dr = page.get_drawings()
+            except Exception:
+                dr = []
+            sigs = [tuple(round(v) for v in d["rect"]) for d in dr]
+            per.append((xr, dr, sigs))
+            img_pages.update(xr)
+            sig_pages.update(set(sigs))
+        lim = max(3, 0.3 * n) if n >= 4 else float("inf")
+        out = []
+        for page, (xr, dr, sigs) in zip(doc, per):
+            pr = page.rect
+            W, H = pr.width or 1, pr.height or 1
+            area = W * H
+
+            def norm(r):
+                return [round(max(0, r.x0) / W, 4), round(max(0, r.y0) / H, 4),
+                        round(min(W, r.x1) / W, 4), round(min(H, r.y1) / H, 4)]
+            lines = []
+            for b in page.get_text("dict").get("blocks", []):
+                for ln in b.get("lines", []):
+                    t = "".join(s["text"] for s in ln.get("spans", [])).strip()
+                    if t:
+                        lines.append(norm(pymupdf.Rect(ln["bbox"])) + [t])
+            rects = []
+            for x in xr:
+                if img_pages[x] >= lim:
+                    continue
+                try:
+                    rs = page.get_image_rects(x)
+                except Exception:
+                    continue
+                for r in rs:
+                    r = pymupdf.Rect(r) & pr
+                    if abs(r) / area >= 0.015:
+                        rects.append(r)
+            # vector diagrams: cluster the page's own shapes by proximity
+            pad = 0.02 * max(W, H)
+            groups = []  # [padded bbox, shape count, bbox]
+            for d, s in zip(dr, sigs):
+                if sig_pages[s] >= lim:
+                    continue
+                r = pymupdf.Rect(d["rect"])
+                g = [pymupdf.Rect(r.x0 - pad, r.y0 - pad, r.x1 + pad, r.y1 + pad), 1, r]
+                hit = True
+                while hit:
+                    hit = False
+                    for o in groups:
+                        if o[0].intersects(g[0]):
+                            g = [o[0] | g[0], o[1] + g[1], o[2] | g[2]]
+                            groups.remove(o)
+                            hit = True
+                            break
+                groups.append(g)
+            for _, k, r in groups:
+                r = r & pr
+                if k >= 6 and abs(r) / area >= 0.03:
+                    rects.append(r)
+            # merge overlapping regions (an image inside a drawn frame, a diagram made of several pictures)
+            hit = True
+            while hit:
+                hit = False
+                for a in range(len(rects)):
+                    for b in range(a + 1, len(rects)):
+                        inter = abs(rects[a] & rects[b])
+                        if inter and inter >= 0.3 * min(abs(rects[a]), abs(rects[b])):
+                            rects[a] = rects[a] | rects[b]
+                            del rects[b]
+                            hit = True
+                            break
+                    if hit:
+                        break
+            rects.sort(key=lambda r: (round(r.y0 / H, 1), r.x0))
+            out.append({"ar": round(W / H, 4), "text": lines, "figs": [norm(r) for r in rects if abs(r) / area < 0.97 or not lines]})
+    return out
 
 
 def shrink_image(data, max_px=VISION_PX):

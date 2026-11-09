@@ -392,7 +392,7 @@ def r_reset(h, cid, mid):
     so the pages can be transcribed again with the current settings."""
     m = _material(cid, mid)
     want = _page_set(h.json().get("range"))
-    hit = lambda c, i: c.get("tr") and not (want and c.get("pg", i) + 1 not in want)  # noqa: E731
+    hit = lambda c, i: (c.get("tr") or c.get("trr")) and not (want and c.get("pg", i) + 1 not in want)  # noqa: E731
     data0 = store.get_chunks(cid, mid)
     by_pg = {}
     if any(hit(c, i) and "x0" not in c for i, c in enumerate(data0["chunks"])):  # no backup -> re-extract once
@@ -423,6 +423,7 @@ def r_reset(h, cid, mid):
             else:
                 c["x"] = ""
             c.pop("tr", None)
+            c.pop("trr", None)
             n += 1
         analyze.analyze(data, m["name"])
         store.save_chunks(cid, mid, data)
@@ -494,6 +495,66 @@ def r_mat_img(h, cid, mid, i):
             t.write_bytes(data)
         return h.send_file(t)
     return h.send_file(src)
+
+
+def _pdf_layout(cid, m):
+    """Text lines + figure regions of every PDF page, computed once per material and cached."""
+    f = store.material_path(cid, m["id"] + "_img") / "layout.json"
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        if d.get("v") == extract.LAYOUT_VERSION:
+            return d["pages"]
+    except (OSError, ValueError):
+        pass
+    pages = extract.pdf_layout(store.material_path(cid, m["id"], m["ext"]))
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"v": extract.LAYOUT_VERSION, "pages": pages}), encoding="utf-8")
+    return pages
+
+
+def _overlap(a, b):
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) or 1e-9
+    return max(0, w) * max(0, h) / small
+
+
+def _page_marks(m, c, lay):
+    """What the AI gets, placed on the page: text lines with ok (1 = in the text sent to Claude,
+    0 = not, e.g. header/footer or cut as 'not relevant') and figures with ok / open / skip."""
+    if m["kind"] != "pdf":  # slides/images: the shown picture is the figure
+        st = "ok" if c.get("tr") else "skip" if c.get("notr") else "open"
+        return {"ar": None, "t": [], "f": [[0, 0, 1, 1, st]] if c.get("img") else []}
+    if lay is None:
+        return {"ar": None, "t": [], "f": []}
+    words = set(re.findall(r"\w{2,}", (c.get("t", "") + " " + tp.chunk_text(c)).lower()))
+    t = []
+    for *r, line in lay["text"]:
+        w = re.findall(r"\w{2,}", line.lower())
+        if w:
+            t.append(r + [int(sum(x in words for x in w) >= 0.6 * len(w))])
+    done = c.get("trr") or []
+    f = []
+    for r in lay["figs"]:
+        st = "ok" if c.get("tr") or any(_overlap(r, d) > 0.5 for d in done) else "skip" if c.get("notr") else "open"
+        f.append(r + [st])
+    return {"ar": lay["ar"], "t": t, "f": f}
+
+
+@route("GET", "/api/courses/([^/]+)/materials/([^/]+)/layout")
+def r_layout(h, cid, mid):
+    """?i=3,4,7 (chunk indices) -> {pages: {i: {ar, t, f}}} for the highlighter overlay."""
+    m = _material(cid, mid)
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
+    ch = store.get_chunks(cid, mid)["chunks"]
+    want = [int(x) for x in re.findall(r"\d+", (q.get("i") or [""])[0])] or range(len(ch))
+    lay = _pdf_layout(cid, m) if m["kind"] == "pdf" else []
+    out = {}
+    for i in want:
+        if 0 <= i < len(ch):
+            pg = ch[i].get("pg", i)
+            out[i] = _page_marks(m, ch[i], lay[pg] if 0 <= pg < len(lay) else None)
+    return {"pages": out}
 
 
 @route("POST", "/api/courses/([^/]+)/materials/([^/]+)/transcribe")
@@ -587,6 +648,68 @@ def r_topic(h, cid, tid):
 @route("POST", "/api/courses/([^/]+)/topics/([^/]+)/note")
 def r_note(h, cid, tid):
     return start_job("note", lambda p: (learn.generate_note(store.get_course(cid), tid, store.get_settings(), p), None)[1])
+
+
+@route("POST", "/api/courses/([^/]+)/topics/([^/]+)/transcribe")
+def r_topic_transcribe(h, cid, tid):
+    """Transcribe pages picked on the topic page: {pages: ["mid:i", ...], regions: {"mid:i": [fig idx]}, note: bool}.
+    regions (PDF pages with text): only these figures are cut out and described; no regions = whole page.
+    Picked pages without a topic (picture-only neighbours) join this topic; then optionally a new Lernzettel.
+    Progress: ("tr", done, total) while transcribing, ("note", chars) while writing."""
+    b = h.json()
+    sel_regions = b.get("regions") or {}
+    c = store.get_course(cid)
+    if not any(t["id"] == tid for t in c["topics"]):
+        raise KeyError("Thema nicht gefunden")
+    want = {}
+    for x in b.get("pages") or []:
+        mid, _, i = str(x).rpartition(":")
+        if mid and i.isdigit():
+            _material(cid, mid)
+            want.setdefault(mid, []).append(int(i))
+    if not want:
+        raise ValueError("Keine Seiten ausgewählt")
+    total = sum(map(len, want.values()))
+
+    def fn(p):
+        done = 0
+        for mid, pages in want.items():
+            m = _material(cid, mid)
+            regs = {}
+            with _course_lock:  # an explicit pick overrides an earlier "no transcription needed"
+                data = store.get_chunks(cid, mid)
+                lay = _pdf_layout(cid, m) if m["kind"] == "pdf" else []
+                for i in pages:
+                    if not 0 <= i < len(data["chunks"]):
+                        continue
+                    c = data["chunks"][i]
+                    c.pop("notr", None)
+                    pg = c.get("pg", i)
+                    idx = sel_regions.get(f"{mid}:{i}")
+                    if idx and 0 <= pg < len(lay):
+                        figs = _page_marks(m, c, lay[pg])["f"]
+                        pickd = [k for k in idx if isinstance(k, int) and 0 <= k < len(figs) and figs[k][4] != "ok"]
+                        if pickd:
+                            still = {k for k, f in enumerate(figs) if f[4] != "ok"}
+                            regs[i] = ([figs[k][:4] for k in pickd], still <= set(pickd))
+                store.save_chunks(cid, mid, data)
+            exam.transcribe(store.get_course(cid), mid, store.get_settings(), False,
+                            lambda d, n, base=done: p("tr", base + d, total), pages, regs)
+            done += len(pages)
+        with _course_lock:
+            cur = store.get_course(cid)
+            t = next((x for x in cur["topics"] if x["id"] == tid), None)
+            have = {x for tt in cur["topics"] for x in tt["chunks"]}
+            if t:
+                for mid, pages in want.items():
+                    ch = store.get_chunks(cid, mid)["chunks"]
+                    t["chunks"] += [f"{mid}:{i}" for i in pages
+                                    if f"{mid}:{i}" not in have and 0 <= i < len(ch) and tp.needs_topic(ch[i])]
+                store.save_course(cur)
+        if b.get("note"):
+            learn.generate_note(store.get_course(cid), tid, store.get_settings(), lambda *a: p("note", *a))
+        return None
+    return start_job("transcribe", fn)
 
 
 @route("POST", "/api/courses/([^/]+)/topics/([^/]+)/ask")

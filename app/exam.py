@@ -746,9 +746,12 @@ def suggest_topics(course, settings, from_goals=False):
     return res
 
 
-def transcribe(course, mid, settings, all_figs=False, progress=None, pages=None):
+def transcribe(course, mid, settings, all_figs=False, progress=None, pages=None, regions=None):
     """Turn image-only pages/pictures into text once; cached in the chunk file.
-    pages: explicit chunk indices chosen by the user in the page picker (otherwise all candidates)."""
+    pages: explicit chunk indices chosen by the user in the page picker (otherwise all candidates).
+    regions: {chunk index: ([[x0, y0, x1, y1] normalized], covers all open figures)} -> on PDF pages with
+    text only these figures are cut out and described; the page counts as transcribed once all are done."""
+    regions = regions or {}
     cid = course["id"]
     m = next(x for x in course["materials"] if x["id"] == mid)
     data = store.get_chunks(cid, mid)
@@ -770,12 +773,16 @@ def transcribe(course, mid, settings, all_figs=False, progress=None, pages=None)
         blocks = []
         for k, i in enumerate(batch, 1):
             c = data["chunks"][i]
+            crop = data["kind"] == "pdf" and fig_only(c) and regions.get(i)
             if fig_only(c):
                 ctx = re.sub(r"\s+", " ", c["x"])[:300]
-                blocks.append({"type": "text", "text": f"Bild {k} – NUR ABBILDUNG (Seitentext ist bereits bekannt: {ctx} …)"})
+                what = f"NUR ABBILDUNG{'EN (Ausschnitte der Seite)' if crop and len(crop[0]) > 1 else ' (Ausschnitt der Seite)' if crop else ''}"
+                blocks.append({"type": "text", "text": f"Bild {k} – {what} (Seitentext ist bereits bekannt: {ctx} …)"})
             else:
                 blocks.append({"type": "text", "text": f"Bild {k} – VOLLSTÄNDIG"})
-            if data["kind"] == "pdf":
+            if crop:
+                imgs = [extract.render_pdf_page(src, c["pg"], clip=r) for r in crop[0][:4]]
+            elif data["kind"] == "pdf":
                 img, mt = extract.render_pdf_page(src, c["pg"])
                 imgs = [(img, mt)]
             else:
@@ -793,11 +800,20 @@ def transcribe(course, mid, settings, all_figs=False, progress=None, pages=None)
             t = got.get(k, "")
             if not t:
                 continue
+            crop = data["kind"] == "pdf" and fig_only(c) and regions.get(i)
+            if crop:  # only some figures: remember which, the page is done once all are described
+                c["trr"] = c.get("trr", []) + crop[0]
             if re.fullmatch(r"[-–—\s]*", t):  # nothing learning-relevant on this page -> keep existing text
-                c["tr"] = True
-                c.pop("v", None)
+                if not crop or crop[1]:
+                    c["tr"] = True
+                    c.pop("v", None)
                 continue
             c.setdefault("x0", c.get("x", ""))  # backup of the locally extracted text (for "reset")
+            if crop:
+                c["x"] = c["x"].rstrip() + "\n[Abbildung] " + t
+                if crop[1]:
+                    c["tr"] = True
+                continue
             if fig_only(c):
                 c["x"] = c["x"].rstrip() + "\n[Abbildung] " + t
             else:
