@@ -131,7 +131,7 @@ def practice(course, exams=None):
                      -> below:   variations of the mistakes, again and again, until one reaches 75 % -> next level."""
     exams = store.list_exams(course["id"]) if exams is None else exams
     by_id = {e["id"]: e for e in exams}
-    st = {t["id"]: {"level": 1, "done": False, "drill": None, "last": None, "ts": 0, "open": None}
+    st = {t["id"]: {"level": 1, "done": False, "done_ts": None, "drill": None, "last": None, "ts": 0, "open": None}
           for t in course["topics"]}
     done = sorted((e for e in exams if e.get("status") == "graded" and e.get("kind") in ("quiz", "drill")),
                   key=lambda e: e.get("graded") or e.get("created") or 0)
@@ -152,6 +152,7 @@ def practice(course, exams=None):
                 s["drill"] = None
                 if L >= 3:
                     s["level"], s["done"] = 3, True
+                    s["done_ts"] = s["done_ts"] or s["ts"]  # first completion (checkpoint exams of the coach)
                 else:
                     s["level"] = L + 1
             else:
@@ -626,10 +627,11 @@ def _update_weak(course, ex):
 KIND_WEIGHT = {"exam": 1.0, "quiz": 0.7, "drill": 0.5}  # practice counts, but less than full exams
 
 
-def mastery(course):
+def mastery(course, exams=None):
     """Topic mastery from graded exams, recency-weighted per AB level.
     100 % = every topic solved fully in AB2 and AB3 (AB1 inferred from higher levels if untested)."""
-    exams = sorted([e for e in store.list_exams(course["id"]) if e.get("status") == "graded"],
+    exams = store.list_exams(course["id"]) if exams is None else exams
+    exams = sorted([e for e in exams if e.get("status") == "graded"],
                    key=lambda e: e.get("graded", 0), reverse=True)
     hist = {}  # (tid, ab) -> [(fraction, kind weight) newest first]
     for e in exams:

@@ -96,6 +96,77 @@ function spoilers(html) {
 }
 document.addEventListener("click", e => { const s = e.target.closest(".spoiler"); if (s) s.classList.toggle("open"); });
 
+// ---------------- Lern-Coach: the one recommended next step ("learn on click") ----------------
+// The server picks it (app/coach.py): continue → practise mistakes → checkpoint/final exam → spaced retake →
+// current topic (Lernzettel, then its quiz level) → polish the weakest spot until 100 %.
+const COACH_IC = { upload: "⬆", topics: "☰", continue: "▶", variants: "↻", note: "📖", quiz: "✎", exam: "📝", retake: "⟲", finished: "✓" };
+const COACH_PHASE = { setup: "Einrichten", learn: "Lernen", polish: "Festigen", done: "Fertig" };
+// opt: compact (one line for topic/exam pages), skipExam (hide "continue" to the exam being shown),
+//      onChange (course data changed, e.g. topics created), onUpload (show the drop zone)
+async function coachPanel(cid, host, opt = {}) {
+  let R;
+  try { R = await api("GET", `/api/courses/${cid}/coach`); } catch (e) { host.innerHTML = ""; return; }
+  const acts = [R.primary, ...R.alts].filter(Boolean);
+  if (!acts.length || (opt.compact && acts[0].kind === "continue" && acts[0].eid === opt.skipExam)) { host.innerHTML = ""; return; }
+  const cost = a => a.est ? `≈ ${tok(a.est)} Tokens${a.model ? " · " + esc(a.model.replace(/^claude-/, "")) : ""}` : a.kind === "continue" || a.kind === "retake" || (a.kind === "note" && a.exists) ? "0 Tokens" : "";
+  const btn = (a, i, cls) => `<button class="${cls}" data-i="${i}" title="${esc(a.why)}">${COACH_IC[a.kind] || "▶"} ${esc(a.label)}</button>`;
+  const p = acts[0];
+  if (opt.compact) {
+    if (p.kind === "upload" || p.kind === "topics") { host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="card coach compact"><span class="small muted">Lern-Coach · ${pct(R.overall)} · nächster Schritt</span>
+      ${btn(p, 0, "primary cgo")}<span class="tiny muted">${cost(p)}</span><span class="cst small muted"></span>
+      <a class="small" href="#/c/${cid}" style="margin-left:auto">Kurs →</a></div>`;
+  } else {
+    const where = R.phase === "learn" && R.cur ? ` · Thema ${R.cur.index}/${R.total} · Stufe ${R.cur.level}` : "";
+    host.innerHTML = `<section class="card coach"><div class="row between">
+        <div class="row"><h2 style="margin:0">Lern-Coach</h2><span class="chip">${COACH_PHASE[R.phase] || ""}${where}</span></div>
+        <span class="small muted"><b>${pct(R.overall)}</b> verstanden · ${R.done}/${R.total} Themen abgeschlossen</span></div>
+      ${R.topics.length ? `<div class="ctrack">${R.topics.map(t => `<a href="#/c/${cid}/t/${t.id}" class="${t.state}" title="${esc(t.name)}: ${{ done: "Lernpfad geschafft", cur: `aktuell · Stufe ${t.level}`, todo: "noch offen", empty: "kein Material" }[t.state]} · ${Math.round(t.score)} % verstanden"></a>`).join("")}</div>` : ""}
+      <div class="row cmain">${btn(p, 0, "primary cgo")}<span class="tiny muted">${cost(p)}</span>
+        ${p.kind === "continue" ? `<button class="ghost tiny" data-discard title="Angefangenen Versuch löschen (zählt nicht zum Verständnis)">verwerfen</button>` : ""}</div>
+      <p class="small cwhy">${esc(p.why)}</p><span class="cst small muted"></span>
+      ${acts.length > 1 ? `<div class="row calt"><span class="tiny muted">Alternativ:</span>${acts.slice(1).map((a, i) => btn(a, i + 1, "small cgo") + `<span class="tiny muted">${cost(a)}</span>`).join("")}</div>` : ""}
+      ${R.warn.length ? `<div class="cwarn tiny">${R.warn.map(w => `⚠ ${esc(w)}`).join("<br>")}</div>` : ""}
+      <details class="tiny muted chow"><summary>Wie entscheidet der Coach?</summary>Strikt der Reihe nach durch die Themen: angefangene Versuche abschließen → Fehler mit Variationen üben (auf dem Lernpfad Pflicht bis ${R.rules.pass} %, aus Klausuren einmal) → nach je ${R.rules.checkpoint} abgeschlossenen Themen eine Zwischenklausur, am Ende eine Abschlussklausur → Klausuren unter ${R.rules.retake_below} % nach ${R.rules.retake_days} Tagen wiederholen → aktuelles Thema: Lernzettel lesen, dann Quiz Stufe 1–3 → zum Schluss die jeweils schwächste Stelle (Thema × AB) üben, bis alles 100 % ist. Nur den Hauptknopf zu drücken, führt durch das gesamte Material.</details></section>`;
+  }
+  const st = $(".cst", host);
+  host.onclick = async e => {
+    if (e.target.closest("[data-discard]")) {
+      if (!confirm(`„${p.label.replace(/^Weiter: /, "")}“ verwerfen? Der Versuch wird gelöscht.`)) return;
+      await api("DELETE", `/api/courses/${cid}/exams/${p.eid}`);
+      return opt.onChange ? opt.onChange() : coachPanel(cid, host, opt);
+    }
+    const b = e.target.closest("[data-i]"); if (!b) return;
+    const a = acts[+b.dataset.i];
+    $$("button", host).forEach(x => { if (x !== b) x.disabled = true; });
+    const done = () => $$("button", host).forEach(x => x.disabled = false);
+    try {
+      if (a.kind === "upload") { done(); return opt.onUpload ? opt.onUpload() : (location.hash = `#/c/${cid}`); }
+      if (a.kind === "topics") {
+        b.innerHTML = `<span class="spinner"></span> Themen werden erstellt …`;
+        await api("POST", `/api/courses/${cid}/topics/local`);
+        toast("Themen aus Gliederung erzeugt – mit „Mit Claude gruppieren“ geht es feiner.");
+        return opt.onChange ? opt.onChange() : coachPanel(cid, host, opt);
+      }
+      if (a.kind === "continue") { location.hash = `#/c/${cid}/e/${a.eid}`; return; }
+      if (a.kind === "retake") { const r = await api("POST", `/api/courses/${cid}/exams/${a.eid}/retake`); location.hash = `#/c/${cid}/e/${r.id}`; return; }
+      if (a.kind === "variants") { await runVariants(cid, a.eid, a.pids, b); return done(); }
+      if (a.kind === "note") {
+        if (!a.exists) {
+          const j = await api("POST", `/api/courses/${cid}/topics/${a.tid}/note`);
+          await poll(j.id, s => { const [n] = s.progress || []; b.innerHTML = `<span class="spinner"></span> Lernzettel wird geschrieben${n ? ` · ${fmt(n)} Zeichen` : ""} · ${s.elapsed} s`; });
+        }
+        if (location.hash === `#/c/${cid}/t/${a.tid}`) route(); else location.hash = `#/c/${cid}/t/${a.tid}`;
+        return;
+      }
+      // quiz / exam: the course's saved exam settings (formats, AB split) apply to the coach's exams too
+      const saved = ls.get("cfg_" + cid, {});
+      const cfg = { ...(saved.types ? { types: saved.types } : {}), ...(a.cfg.kind !== "quiz" && saved.ab ? { ab: saved.ab } : {}), ...a.cfg };
+      if (!(await startGen(cid, cfg, st, b))) done();
+    } catch (err) { toast(err.message, true); coachPanel(cid, host, opt); }
+  };
+}
+
 // ---------------- router ----------------
 async function route() {
   cleanups.forEach(f => f()); cleanups = [];
@@ -138,6 +209,7 @@ async function viewCourse(cid) {
   const saveCfg = () => ls.set(cfgKey, { minutes: cfg.minutes, ab: cfg.ab, types: cfg.types, focus_weak: cfg.focus_weak });
 
   app.innerHTML = `<div class="row between"><h1 id="cname" title="Doppelklick zum Umbenennen">${esc(C.name)}</h1><button class="ghost small" id="cdel">Kurs löschen</button></div>
+  <div id="coach"></div>
   <div class="grid2"><div>
     <section class="card"><h2>Material</h2>
       <div class="drop" id="drop">Dateien oder Ordner hierher ziehen<br><span class="small">PDF, PowerPoint, Word, Bilder, Code, Notebooks, Text · oder <a href="#" id="pick">Dateien wählen</a> / <a href="#" id="pickd">Ordner wählen</a></span></div>
@@ -422,7 +494,8 @@ async function viewCourse(cid) {
     if (document.activeElement !== $("#ins")) $("#ins").value = C.instructions || ""; // e.g. exam info taken over from suggestions
     renderAll();
   }
-  function renderAll() { renderMats(); renderTopics(); renderMastery(); renderHist(); estimate(); }
+  const showDrop = () => { const d = $("#drop"); d.scrollIntoView({ behavior: "smooth", block: "center" }); d.classList.remove("flash"); void d.offsetWidth; d.classList.add("flash"); };
+  function renderAll() { renderMats(); renderTopics(); renderMastery(); renderHist(); estimate(); coachPanel(cid, $("#coach"), { onChange: reload, onUpload: showDrop }); }
   renderAll();
 }
 
@@ -431,6 +504,7 @@ async function viewTopic(cid, tid) {
   let T = await api("GET", `/api/courses/${cid}/topics/${tid}`);
   app.innerHTML = `<a href="#/c/${cid}" class="small">← Kurs</a>
     <div class="row between"><h1 style="margin:4px 0 12px">${esc(T.topic.name)}</h1><div id="tm" class="row"></div></div>
+    <div id="coach"></div>
     <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)">
       <div><section class="card" id="note"></section><section class="card" id="qa"></section></div>
       <div><section class="card" id="quiz"></section><section class="card" id="src"></section></div></div>`;
@@ -622,7 +696,11 @@ async function viewTopic(cid, tid) {
     for (const k in LAY) delete LAY[k];
     T = await api("GET", `/api/courses/${cid}/topics/${tid}`); renderAll();
   }
-  function renderAll() { renderHead(); renderNote(); renderQA(); renderQuiz(); renderSrc(); }
+  async function renderCoach() {
+    if (T.note && !T.note.seen) { await api("POST", `/api/courses/${cid}/topics/${tid}/note/seen`).catch(() => {}); T.note.seen = true; }
+    coachPanel(cid, $("#coach"), { compact: true });
+  }
+  function renderAll() { renderHead(); renderNote(); renderQA(); renderQuiz(); renderSrc(); renderCoach(); }
   renderAll();
 }
 // what the AI gets from a page (status "s" from the topic info)
@@ -1155,6 +1233,8 @@ async function viewExam(cid, eid) {
       <div class="tiny muted" style="margin-top:8px">${usage}</div></div>`;
     if (wrong.length) $("#varall").onclick = e => makeVariants(wrong, e.currentTarget);
     renderNext();
+    const co = el(`<div></div>`); $("#summary").prepend(co);
+    coachPanel(cid, co, { compact: true, skipExam: eid });
   }
 
   // learning path: what this quiz/variation means per topic and the one next step

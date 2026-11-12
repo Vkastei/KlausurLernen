@@ -278,3 +278,19 @@ details summary { cursor: pointer; color: var(--text-2); font-size: .9rem; }
 .legend { display: flex; gap: 14px; font-size: .8rem; color: var(--text-2); }
 .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--series-1); }
 .legend span.o::before { background: var(--series-2); }
+/* Lern-Coach */
+.coach { border-left: 3px solid var(--accent); }
+.coach .ctrack { display: flex; gap: 2px; margin: 12px 0; }
+.coach .ctrack a { flex: 1; min-width: 3px; height: 8px; border-radius: 2px; background: var(--surface-2); border: 1px solid var(--border); }
+.coach .ctrack a.done { background: var(--good); border-color: var(--good); }
+.coach .ctrack a.cur { background: var(--accent); border-color: var(--accent); height: 12px; margin-top: -2px; }
+.coach .ctrack a.empty { background: repeating-linear-gradient(45deg, var(--border) 0 3px, transparent 3px 6px); }
+.coach .ctrack a:hover { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); }
+.coach button.cgo { white-space: normal; text-align: left; max-width: 100%; }
+.coach .cmain button.cgo { font-size: 1rem; font-weight: 600; padding: 9px 16px; }
+.coach .cwhy { margin: 8px 0 0; color: var(--text-2); }
+.coach .calt { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.coach .cwarn { margin-top: 10px; color: var(--warn); }
+.coach .chow { margin-top: 10px; } .coach .chow summary { cursor: pointer; }
+.coach.compact { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; }
+.coach.compact button.cgo { padding: 6px 12px; }

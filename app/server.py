@@ -13,7 +13,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import analyze, claude_cli, exam, extract, learn, store, topics as tp
+from . import analyze, claude_cli, coach, exam, extract, learn, store, topics as tp
 
 STATIC = store.ROOT / "static"
 PORT = 8765
@@ -645,6 +645,16 @@ def r_topic(h, cid, tid):
     return learn.topic_info(store.get_course(cid), tid, store.get_settings())
 
 
+@route("GET", "/api/courses/([^/]+)/coach")
+def r_coach(h, cid):
+    return coach.recommend(store.get_course(cid), store.get_settings())
+
+
+@route("POST", "/api/courses/([^/]+)/topics/([^/]+)/note/seen")
+def r_note_seen(h, cid, tid):
+    return {"ok": coach.mark_seen(store.get_course(cid), tid)}
+
+
 @route("POST", "/api/courses/([^/]+)/topics/([^/]+)/note")
 def r_note(h, cid, tid):
     return start_job("note", lambda p: (learn.generate_note(store.get_course(cid), tid, store.get_settings(), p), None)[1])
@@ -836,7 +846,7 @@ def r_retake(h, cid, eid):
     for k in ("result", "graded", "submitted", "started", "elapsed"):
         e.pop(k, None)
     e.update({"id": store.new_id("e"), "created": time.time(), "status": "open", "answers": {},
-              "title": e["title"] + " (Wdh.)", "usage": {}})
+              "title": e["title"] + " (Wdh.)", "usage": {}, "retake_of": eid})
     store.save_exam(cid, e)
     return {"id": e["id"]}
 

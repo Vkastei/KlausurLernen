@@ -137,7 +137,7 @@ def generate_note(course, tid, settings, progress=None):
     md = re.sub(r"^```(?:markdown|md)?\s*|\s*```$", "", out.strip())
     old = get_note(course["id"], tid) or {}
     note = {"tid": tid, "md": md, "fp": fp, "created": time.time(), "model": usage["model"],
-            "usage": usage, "qa": old.get("qa", [])}
+            "usage": usage, "qa": old.get("qa", []), **({"seen": old["seen"]} if old.get("seen") else {})}
     store.write_json(note_path(course["id"], tid), note)
     return note
 

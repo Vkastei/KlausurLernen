@@ -12,6 +12,16 @@ Voraussetzung: Python 3.10+, Claude Code CLI (`claude`) installiert und angemeld
 
 ## Ablauf
 
+**▶ Lern-Coach** (ganz oben im Kurs, kompakt auch auf Themen- und Ergebnisseiten): ein Knopf für den jeweils nächsten Schritt. Wer nur diesen Knopf drückt, geht das gesamte Material bis 100 % durch. Der Coach entscheidet lokal (0 Tokens) aus allen bisherigen Versuchen, in dieser Reihenfolge:
+1. Angefangenen Versuch abschließen (oder „verwerfen“).
+2. Fehler üben: offene Variationen auf dem Lernpfad (Pflicht bis 75 %), danach einmal die Fehler der letzten Klausur.
+3. Nach je 3 abgeschlossenen Themen eine **Zwischenklausur** (≈ 15 min pro Thema), wenn alle Themen geschafft sind eine **Abschlussklausur**.
+4. **Alte Klausur wiederholen**: unter 90 % und mindestens 3 Tage her, dieselben Aufgaben mit Abstand.
+5. **Aktuelles Thema** (strikt der Reihe nach): Lernzettel lesen (wird bei Bedarf erstellt), dann Quiz der Lernpfad-Stufe 1 → 2 → 3.
+6. **Festigen**: Sind alle Themen durch, wird die jeweils schwächste Stelle (Thema × AB) geübt, bis jedes Thema 100 % hat.
+
+Dazu zeigt der Coach bis zu zwei Alternativen (z. B. Probeklausur über alles bisher Gelernte), die Token-Schätzung pro Knopf, eine Fortschrittsleiste über alle Themen (anklickbar) und Warnungen (Themen ohne Material, nicht transkribierte Seiten).
+
 1. **Kurs anlegen**, Dateien/Ordner in die Ablage ziehen (PDF, PPTX, DOCX, Bilder, Code, IPYNB, MD/TXT/TEX …).
    Jede Datei zeigt eine Schrittleiste **① Hochgeladen → ② Bereinigen → ③ Bilder → ④ Themen** und genau einen Knopf „Nächster Schritt“. Diese Reihenfolge spart Tokens: erst unwichtige Seiten ausschließen, dann nur die übrigen Bildseiten transkribieren, dann Themen zuordnen. Wer einen Schritt überspringt, bekommt einen Hinweis.
    **Bilder auswählen**: Vor jeder Transkription öffnet sich eine Seitenauswahl mit Vorschaubildern (Klick, Umschalt+Klick für Bereiche, mit der Maus ziehen für mehrere, „Alle / Keine / Umkehren / Nur Lerninhalte“, Token-Schätzung live). Nicht ausgewählte reine Bildseiten können direkt ausgeschlossen werden; nicht ausgewählte Abbildungen werden als „keine Transkription nötig“ gemerkt.
@@ -66,6 +76,8 @@ app/claude_cli.py  CLI-Wrapper (stream-json in/out, Usage-Log), JSON-Reparatur
 app/extract.py     PDF/PPTX/DOCX/IPYNB/Code/Text/Bild → Abschnitte
 app/topics.py      Gliederung, BM25-Zuordnung, Materialauswahl nach Budget
 app/exam.py        Prompts, Generierung, Validierung, Korrektur, Verständnis-Score
+app/coach.py       Lern-Coach: nächster Schritt aus allen Versuchen (lokal)
+app/learn.py       Lernzettel, Nachfragen, Variationen
 static/            UI (Vanilla JS), Zeichen-Canvas, Markdown+KaTeX offline
 data/              alle Kurse, Klausuren, Uploads, usage.jsonl (lokal, nicht im Git)
 ```
