@@ -2,7 +2,7 @@
 
 # 📝 KlausurLernen
 
-**Lokales Lerntool, Daten hochladen und Probeklausuren generieren - benutzt Claude Code, vielleicht bald auch OpenAI/Gemini**
+**Lokales Lerntool, Daten hochladen und Probeklausuren generieren - benutzt Claude CLI, vielleicht bald auch OpenAI/Gemini**
 
 Präsis/Dokumente/Arbeitsblätter/Zeichungen reinziehen → lernen
 
