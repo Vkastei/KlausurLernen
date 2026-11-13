@@ -4,14 +4,13 @@
 
 **Vom Vorlesungsmaterial zur bestandenen Klausur – lokal, Schritt für Schritt, mit Claude.**
 
-Material reinziehen → Lernzettel → Quizze → realistische Probeklausuren → KI-Korrektur → Verständnis bis 100 %
-
+Präsis/Dokumente/Arbeitsblätter/Zeichungen reinziehen →
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Claude Code CLI](https://img.shields.io/badge/Claude_Code-CLI-D97757)
 ![Lokal](https://img.shields.io/badge/Daten-lokal-2a78d6)
 ![Vanilla JS](https://img.shields.io/badge/UI-Vanilla_JS-F7DF1E?logo=javascript&logoColor=black)
 
-**⚡ KOMPLETT GEVIBECODED!**
+**Is natürlich gevibecoded**
 
 </div>
 
@@ -20,7 +19,7 @@ Material reinziehen → Lernzettel → Quizze → realistische Probeklausuren �
   <img alt="Kursseite mit Lern-Coach, Material und Verständnis-Übersicht" src="docs/screenshots/coach-light.png">
 </picture>
 
-<sub>Alle Screenshots zeigen einen Demo-Kurs mit erfundenen Daten.</sub>
+<sub>Erfundener Kurs & Daten.</sub>
 
 ---
 
@@ -28,29 +27,30 @@ Material reinziehen → Lernzettel → Quizze → realistische Probeklausuren �
 
 ---
 
-## ✨ Was es kann
+## Features
 
 | Funktion | Beschreibung |
 |---|---|
-| ▶ **Lern-Coach** | Ein Knopf für den jeweils nächsten Schritt – nur ihn zu drücken, führt durchs gesamte Material bis 100 % |
-| 📂 **Jedes Format** | PDF, PowerPoint, Word, Bilder, Code, Notebooks, Markdown/Text/LaTeX – Dateien oder ganze Ordner |
-| 📖 **Lernzettel** | Pro Thema aus *deinem* Material: Kernbegriffe, Schritt für Schritt, Beispiel, typische Fehler, Selbsttest |
-| 🎯 **Lernpfad** | Kurz-Quizze in drei Stufen (AB I → II → III), Fehler werden so lange variiert, bis sie sitzen |
-| 📝 **Probeklausuren** | Realistisch, Schwerpunkt AB II/III, im Stil deines Dozenten (Übungen/Altklausuren als Vorlage) |
-| ✅ **Korrektur** | Objektive Formate lokal, offene Antworten von Claude – mit Begründung und „So wäre es richtig“ |
-| 📈 **Verständnis-Score** | Pro Thema und AB-Stufe, neuere Versuche zählen mehr |
-| 💸 **Token-sparsam** | Lokale Vorverarbeitung, Caching, gezielte Materialauswahl, Verbrauchsübersicht |
-| 🔒 **Lokal** | Alle Kurse, Uploads und Ergebnisse bleiben in `data/` auf deinem Rechner (nicht im Git) |
+| ▶ **Lern-Coach** | Einfacher Lerncoach der das Material durchgeht bis du 100% erreicht hast |
+|  **Formate** | PDF, PowerPoint, Word, Bilder, Code, Notebooks, Markdown/Text/LaTeX – Dateien oder ganze Ordner |
+| **Lernzettel** | Pro Thema aus hochgeladenem Material: Kernbegriffe, Schritt für Schritt, Beispiel, typische Fehler, Selbsttest |
+| **Lernpfad** | Kurz-Quizze in drei Stufen (Anforderungsbereich I → II → III), Fehler werden variiert, bis sie sitzen |
+| **Probeklausuren** | Realistisch, Schwerpunkt AB II/III, im Stil vom hochgelandenen Material (Übungen/Altklausuren als Vorlage) |
+|  **Korrektur** | Objektive Formate lokal, offene Antworten von Claude – mit Begründung und Korrektur |
+| **Verständnis-Score** | Pro Thema und AB-Stufe, neuere Versuche zählen mehr |
+|  **Token-sparsam** | Versucht möglichst wenige Token zu verschwenden, viel lokal übernommen |
+|  **Lokal** | Alle Kurse, Uploads und Ergebnisse bleiben in `data/` auf deinem Rechner (nicht getrackt) |
 
 ---
 
-## 🚀 Schnellstart
+## Quickstart
 
-**Voraussetzungen**
+**Requirements**
 - Python 3.10+
 - [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) (`claude`) installiert und angemeldet
+- Claude Abo (20€/Monat)
 
-**Starten**
+**Run**
 - `start.bat` doppelklicken → installiert beim ersten Mal `pymupdf`, `python-pptx`, `python-docx` → öffnet http://127.0.0.1:8765
 - oder manuell:
   ```bash
@@ -60,16 +60,15 @@ Material reinziehen → Lernzettel → Quizze → realistische Probeklausuren �
 
 ---
 
-## 🧭 So lernst du damit
+## Tutorial
 
 1. **Kurs anlegen** und Material in die Ablage ziehen
-2. **Vorbereiten**: pro Datei ① Hochgeladen → ② Bereinigen → ③ Bilder → ④ Themen
+2. **Vorbereiten**: pro Datei ① Hochgeladen → ② Bereinigen → ③ Bilder → ④ Themen (KI lernt die Inhalte, baut Index auf)
 3. **Lern-Coach** drücken – er wählt Lernzettel, Quiz, Variation oder Klausur
 4. **Bearbeiten & abgeben** – Korrektur mit Erklärungen, Fehler gleich nachüben
 5. Wiederholen, bis jedes Thema **100 %** hat
 
-> **Empfohlen bei neuem Stoff:** Lernzettel lesen → Selbsttest → Kurz-Quiz → Fehler variieren → Tage später nächstes Quiz → am Ende Probeklausuren. Genau diesen Weg geht der Lern-Coach.
-
+> **Empfohlen bei neuem Stoff:** Lernzettel lesen → Selbsttest → Kurz-Quiz → Fehler variieren → Tage später nächstes Quiz → am Ende Probeklausuren. Der Lerncoach macht grob dasselbe.
 ---
 
 ## ▶ Lern-Coach
@@ -87,10 +86,10 @@ Außerdem: bis zu zwei Alternativen (z. B. Probeklausur über alles bisher Geler
 
 ---
 
-## 📚 Material vorbereiten
+##  Material vorbereiten
 
-Jede Datei zeigt eine Schrittleiste und genau einen Knopf **„Nächster Schritt“**. Die Reihenfolge spart Tokens: erst Unwichtiges raus, dann nur die übrigen Bildseiten transkribieren, dann Themen zuordnen.
-
+Folg einfach den Schritten die angezeigt werden, wenn du nicht weiterkommst, mach einen Issue auf.
+Für Entwickler:
 | Schritt | Was passiert | Kosten |
 |---|---|---|
 | ② **Bereinigen** | 💡 Vorschläge: Organisatorisches, Literatur, Duplikate, Danke-Folien … ausschließen, Lernziele als „sehr wichtig“ markieren, Prüfungsinfos in die Kursvorgaben übernehmen | 0 Tokens |
@@ -102,7 +101,6 @@ Jede Datei zeigt eine Schrittleiste und genau einen Knopf **„Nächster Schritt
 
 - **Rollen pro Seite** (lokal): Lernziele, Übung, Lösung, Prüfungsinfo, Organisatorisches, Literatur, Danke-/Trennfolie, Umfrage, Duplikat, Animationsschritt
 - **Nicht klausurrelevant** wird erkannt, wenn der Dozent es kennzeichnet: Symbol (wenn das Material die Konvention erklärt), Bereichsangaben wie „Folien 414–431“, Textnotizen
-- Nichts passiert ohne Bestätigung; Logos und Vorlagen-Grafiken zählen nicht als Abbildung
 - **✎ Stilvorlagen**: Übungen, Altklausur-/Quizfragen und Lösungen (per Seite, Bereich oder Datei; Namen wie „Altklausur…“, „Übungsblatt…“, „…Lösung“ werden erkannt) bleiben normales Lernmaterial. Bei der Klausurerstellung gehen sie einmal als eigener Stil-Block mit (max. ≈ 4k Tokens) → Aufgabentyp, Formulierung und Niveau wie beim Dozenten
 - **🔎 KI-Vorprüfung** (Sonnet, nur Text, ab 50 Seiten automatisch angeboten): verfeinert die Rollen, erkennt Prüfungshinweise („genau so lernen“), fasst Prüfungsinfos als Kursvorgabe zusammen. Geprüfte und ausgeschlossene Seiten werden nicht erneut gesendet
 </details>
