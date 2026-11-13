@@ -2,9 +2,10 @@
 
 # 📝 KlausurLernen
 
-**Vom Vorlesungsmaterial zur bestandenen Klausur – lokal, Schritt für Schritt, mit Claude.**
+**Lokales Lerntool, Daten hochladen und Probeklausuren generieren - benutzt Claude Code, vielleicht bald auch OpenAI/Gemini**
 
-Präsis/Dokumente/Arbeitsblätter/Zeichungen reinziehen →
+Präsis/Dokumente/Arbeitsblätter/Zeichungen reinziehen → lernen
+
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Claude Code CLI](https://img.shields.io/badge/Claude_Code-CLI-D97757)
 ![Lokal](https://img.shields.io/badge/Daten-lokal-2a78d6)
