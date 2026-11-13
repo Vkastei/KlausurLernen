@@ -19,7 +19,10 @@ Präsis/Dokumente/Arbeitsblätter/Zeichungen reinziehen → lernen
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/coach-dark.png">
   <img alt="Kursseite mit Lern-Coach, Material und Verständnis-Übersicht" src="docs/screenshots/coach-light.png">
 </picture>
-
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/topic-dark.png">
+  <img alt="Themenseite mit Lernzettel und Quizz" src="docs/screenshots/topic-light.png">
+</picture>
 <sub>Erfundener Kurs & Daten.</sub>
 
 ---
